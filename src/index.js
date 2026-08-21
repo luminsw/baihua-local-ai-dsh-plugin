@@ -96,7 +96,7 @@ export function apply(ctx, config) {
 
   // ---------- 探测循环 ----------
   const probeSignal = new AbortController();
-  void caps.probe(probeSignal.signal).catch(() => {});
+  const initialProbe = caps.probe(probeSignal.signal).catch(() => {});
 
   // ---------- LLM 提供方注册 ----------
   const attachments = ctx.get("attachments");
@@ -229,8 +229,14 @@ export function apply(ctx, config) {
 
   console.log(
     `[dsh-baihua-local-ai] loaded (provider=${config.provider}, auxRouting=${config.routeAuxiliaryCalls}). ` +
-      `本地模型：${caps.list().filter((m) => m.healthy).length} 个在线。`,
+      `等待首次探测…（模型数在探测完成后打印）`,
   );
+  // 首次探测完成后再报告模型数（避免启动日志显示 0 个的假象）
+  void initialProbe.then(() => {
+    const healthy = caps.list().filter((m) => m.healthy);
+    const sources = [...new Set(healthy.map((m) => m.source))].join(",") || "无";
+    console.log(`[dsh-baihua-local-ai] 首次探测完成：${healthy.length} 个模型在线（来源：${sources}）。`);
+  });
 
   // ---------- 生命周期清理（ctx.effect：插件卸载/热重载时自动执行） ----------
   // 说明：ctx.on / ctx.tools.register / ctx.llm.registerAdapter 等经 ctx 注册的能力
