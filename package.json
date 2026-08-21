@@ -1,0 +1,37 @@
+{
+  "name": "baihua-local-ai-dsh-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Baihua (百花) local-AI integration plugin for DeepSeek Harness. Auto-detects Baihua-provided local AI services (OpenVINO Model Server / OVMS, vision server, Baihua.AI OpenAI-compat shim), maintains a live capability table, registers local models as a DSH LLM provider route, and exposes a guarded small-task tool so DSH can offload tiny, bounded work to on-machine AI and reduce online token consumption.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "deepseek",
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "baihua",
+    "openvino",
+    "ovms",
+    "local-ai"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.7 <0.1.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.7 <0.1.0"
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke.mjs"
+  }
+}
