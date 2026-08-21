@@ -17,8 +17,20 @@ function messageRole(m) {
   return m.role === "system" ? "system" : m.role === "assistant" ? "assistant" : "user";
 }
 
-/** DSH 的 Message[] → OpenAI wire messages。本地小模型只吃文本；工具结果折叠为文本。 */
-function toWireMessages(messages, system) {
+/** 该能力条目能否作为"对话+看图"模型（OVMS/shim 的 vision 模型；:8801 识别服务不算）。 */
+function isChatVision(entry) {
+  return entry.type === "vision" && (entry.source === "ovms" || entry.source === "shim");
+}
+
+/**
+ * DSH 的 Message[] → OpenAI wire messages。
+ *  - 工具结果折叠为文本；
+ *  - 视觉模型（acceptImages=true 且有 attachments）时，user 消息里的 ImageBlock
+ *    经 ctx.attachments.readImage 取字节转 base64 data URL，按 OpenAI 多模态
+ *    content 数组格式发给 OVMS qwen2.5-vl；
+ *  - 纯文本模型（或 attachments 缺失）时图片块被忽略，只透传文本。
+ */
+async function toWireMessages(messages, system, { acceptImages = false, attachments = null, signal } = {}) {
   const wire = [];
   if (system) wire.push({ role: "system", content: system });
   for (const m of messages) {
@@ -46,7 +58,25 @@ function toWireMessages(messages, system) {
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
-      wire.push({ role: "user", content: [text, resultText].filter(Boolean).join("\n") });
+      const combinedText = [text, resultText].filter(Boolean).join("\n");
+
+      const imageBlocks = blocks.filter((b) => b.type === "image");
+      if (imageBlocks.length && acceptImages && attachments) {
+        // 多模态 content 数组：文本 + image_url（base64 data URL）
+        const parts = [];
+        if (combinedText) parts.push({ type: "text", text: combinedText });
+        for (const img of imageBlocks) {
+          const stored = await attachments.readImage(img.attachment, signal);
+          const b64 = Buffer.from(stored.data).toString("base64");
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:${img.attachment.mediaType};base64,${b64}` },
+          });
+        }
+        wire.push({ role: "user", content: parts });
+      } else {
+        wire.push({ role: "user", content: combinedText });
+      }
       continue;
     }
     // tool 消息：DSH 的历史里以 tool-result 块挂在 user 消息上；防御性兜底
@@ -60,11 +90,14 @@ export class BaihuaLocalAdapter extends LlmAdapter {
   /**
    * @param {import('./probe.js').CapabilityStore} caps 能力表
    * @param {{ defaultMaxTokens: number, timeoutMs: number }} config
+   * @param {import('@deepseek-ai/dsh-attachment').AttachmentStore | null} [attachments]
+   *   ctx.attachments 服务（可选）：存在时视觉模型可读取对话中的图片附件。
    */
-  constructor(caps, config) {
+  constructor(caps, config, attachments = null) {
     super();
     this.caps = caps;
     this.config = config;
+    this.attachments = attachments;
   }
 
   providerInfo(provider) {
@@ -74,13 +107,13 @@ export class BaihuaLocalAdapter extends LlmAdapter {
   async listModels(provider) {
     return this.caps
       .chatModels()
-      .filter((m) => m.type === "text") // 文本对话模型才能做 LLM provider；视觉/嵌入另行展示
+      .filter((m) => m.type === "text" || isChatVision(m)) // 文本对话模型 + OVMS/shim 视觉对话模型
       .map((m) => ({
         provider,
         id: m.id,
         name: m.name || m.id,
         description: `来源:${m.source} · ${m.params}${m.quant ? " · " + m.quant : ""} · 上下文 ${m.contextWindow} tokens`,
-        inputModalities: ["text"],
+        inputModalities: isChatVision(m) ? ["text", "image"] : ["text"],
       }));
   }
 
@@ -97,7 +130,7 @@ export class BaihuaLocalAdapter extends LlmAdapter {
       id: model,
       name: entry.name || model,
       description: `来源:${entry.source} · ${entry.params}`,
-      inputModalities: ["text"],
+      inputModalities: isChatVision(entry) ? ["text", "image"] : ["text"],
       context: { contextWindow: entry.contextWindow ?? 8192 },
       defaultMaxTokens: this.config.defaultMaxTokens,
     };
@@ -126,7 +159,12 @@ export class BaihuaLocalAdapter extends LlmAdapter {
       return;
     }
 
-    const messages = toWireMessages(options.messages, options.system);
+    const acceptImages = isChatVision(entry) && !!this.attachments;
+    const messages = await toWireMessages(options.messages, options.system, {
+      acceptImages,
+      attachments: this.attachments,
+      signal: options.signal,
+    });
     let started = false;
     try {
       for await (const ev of chatCompletionStream({

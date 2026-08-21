@@ -99,10 +99,15 @@ export function apply(ctx, config) {
   }
 
   // ---------- LLM 提供方注册 ----------
-  const adapter = new BaihuaLocalAdapter(caps, {
-    defaultMaxTokens: config.defaultMaxTokens,
-    timeoutMs: config.timeoutMs,
-  });
+  const attachments = ctx.get("attachments");
+  const adapter = new BaihuaLocalAdapter(
+    caps,
+    {
+      defaultMaxTokens: config.defaultMaxTokens,
+      timeoutMs: config.timeoutMs,
+    },
+    attachments,
+  );
   const handle = ctx.llm.registerAdapter([config.provider], adapter);
 
   // ---------- 小任务工具 ----------
@@ -153,6 +158,10 @@ export function apply(ctx, config) {
             healthy: m.healthy,
             name: m.name ?? null,
             owner: m.owner ?? null,
+            inputModalities:
+              m.type === "vision" && (m.source === "ovms" || m.source === "shim")
+                ? ["text", "image"]
+                : ["text"],
           })),
           stats: caps.stats(),
           pid: process.pid,

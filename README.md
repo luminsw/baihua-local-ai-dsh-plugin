@@ -68,6 +68,13 @@ provider: "baihua-local" + model: "qwen2.5" 覆盖，让子任务完全跑在本
 
 会话标题生成等小调用自动走本地模型；本地失败时无缝回退远程，不会打断会话。
 
+### 方式四：本地视觉模型（看图对话，需要 DSH 重启加载）
+
+适配器会把 OVMS 的视觉对话模型（`qwen2.5-vl-3b` / `qwen2.5-vl-7b`）注册为
+`inputModalities: [text, image]` 的模型。把 agent/subagent 指向
+`provider: "baihua-local" + model: "qwen2.5-vl-3b"`，它就能使用 `read_image` 读图、
+看图对话（图片经 `ctx.attachments` 取字节 → base64 → OVMS qwen2.5-vl）。
+
 ## 工作原理
 
 ```
@@ -103,11 +110,15 @@ node scripts/smoke.mjs
 
 # 依赖 DSH 包的冒烟（需已复制进 profiles/node_modules）
 node ~/.dsh/profiles/node_modules/baihua-local-ai-dsh-plugin/scripts/smoke-dsh.mjs
+
+# 视觉链路冒烟（mock 附件 + 抓包校验 wire 格式 + 真实 OVMS VL 推理）
+node ~/.dsh/profiles/node_modules/baihua-local-ai-dsh-plugin/scripts/smoke-vision.mjs
 ```
 
 ## 已知限制
 
 - 本地模型上下文有限（qwen2.5 约 32K，且 OVMS 实际有效长度更保守）——所以只分小任务。
-- 适配器当前只透传文本消息；图片/多模态与工具调用（function calling）暂不转发。
+- 视觉模型（qwen2.5-vl-*）支持文本+图片；多轮带图历史、图片 URL 直传暂未实现（图片一律转 base64 data URL）。
+- 工具调用（function calling）暂不转发给本地模型。
 - 视觉服务（:8801）只做图片识别，不作为 LLM 提供方注册；能力表里如实标注。
 - 云端模型（shim 里的 deepseek 等）不会进入本地能力表，避免误路由。
