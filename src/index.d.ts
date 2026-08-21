@@ -13,6 +13,10 @@ export interface Config {
   baihuaShimUrl?: string;
   /** 百花视觉服务。 */
   visionUrl?: string;
+  /** 百花算力池统一网关（/mg/pool/v1，全网路由 + failover）。空 = 不探测。 */
+  poolUrl?: string;
+  /** 算力池网关鉴权 token。 */
+  poolToken?: string;
   /** 遗留 openvino_llm_server 扫描（默认关闭）。 */
   llmServerHost?: string;
   llmServerPorts?: number[];

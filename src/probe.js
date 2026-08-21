@@ -42,13 +42,13 @@ function isKnownLocalOwner(owner) {
   return ["ollama", "llama.cpp", "llamafile", "lmstudio", "openvino", "ovms"].some((k) => o.includes(k));
 }
 
-async function fetchJson(url, { timeoutMs = 5000, signal } = {}) {
+async function fetchJson(url, { timeoutMs = 5000, signal, headers } = {}) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error("timeout")), timeoutMs);
   const onAbort = () => ac.abort(signal?.reason ?? new Error("cancelled"));
   signal?.addEventListener("abort", onAbort);
   try {
-    const res = await fetch(url, { signal: ac.signal });
+    const res = await fetch(url, { signal: ac.signal, headers });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
     return await res.json();
   } finally {
@@ -142,6 +142,30 @@ async function probeVision(visionBase, caps, signal) {
   }
 }
 
+/** 探测百花算力池统一网关：GET {base}/models → 全网可用模型（本机+对端，按模型名全网路由/failover）。
+ *  与 shim 不同：pool 收录全部模型（含 deepseek 官方路由），供 DSH 直接选用全网算力。 */
+async function probePool(poolBase, caps, signal, token = "") {
+  try {
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const json = await fetchJson(`${poolBase}/models`, { signal, headers });
+    const list = Array.isArray(json?.data) ? json.data : [];
+    for (const m of list) {
+      const id = String(m.id ?? "");
+      if (!id) continue;
+      caps.upsert({
+        id,
+        source: "pool",
+        endpoint: poolBase,
+        type: classifyModel(id),
+        owner: "baihua-pool",
+        token,
+      });
+    }
+  } catch (err) {
+    caps.noteError("pool", err);
+  }
+}
+
 /** 探测遗留 openvino_llm_server.py 实例端口段（一模型一端口，OpenAI 兼容）。 */
 async function probeLlmServers({ host = "127.0.0.1", ports = [], basePath = "/v1" }, caps, signal) {
   for (const port of ports) {
@@ -217,6 +241,7 @@ export function createCapabilityStore(config) {
       if (config.ovmsUrl) await probeOvms(config.ovmsUrl, caps, signal);
       if (config.baihuaShimUrl) await probeShim(config.baihuaShimUrl, caps, signal);
       if (config.visionUrl) await probeVision(config.visionUrl, caps, signal);
+      if (config.poolUrl) await probePool(config.poolUrl, caps, signal, config.poolToken ?? "");
       if (config.llmServerPorts?.length) {
         await probeLlmServers(
           { host: config.llmServerHost ?? "127.0.0.1", ports: config.llmServerPorts, basePath: config.llmServerBasePath ?? "/v1" },
@@ -244,16 +269,17 @@ export function createCapabilityStore(config) {
    * 为小任务挑选"最合适"的文本模型：
    *  1. 优先 OVMS（白花自研、零依赖、可稳定并发）；
    *  2. 其次 shim 收录的本地提供方；
-   *  3. 最后遗留 llm-server。
+   *  3. 再其次算力池网关（可能路由到云端 deepseek，靠后排）；
+   *  4. 最后遗留 llm-server。
    * 同来源内选参数量最小者（小任务求快、省显存）。
    */
   function pickChatModel() {
-    const order = { ovms: 0, shim: 1 };
+    const order = { ovms: 0, shim: 1, pool: 2 };
     const pool = chatModels()
       .filter((m) => m.type === "text")
       .sort((a, b) => {
-        const oa = order[a.source] ?? 2;
-        const ob = order[b.source] ?? 2;
+        const oa = order[a.source] ?? 3;
+        const ob = order[b.source] ?? 3;
         if (oa !== ob) return oa - ob;
         return (parseParams(a.params) ?? 1e9) - (parseParams(b.params) ?? 1e9);
       });

@@ -92,6 +92,7 @@ export function smallTaskTool(caps, config) {
         maxTokens,
         signal: exec.signal,
         timeoutMs: config.timeoutMs,
+        token: model.token,
       });
 
       let text = result.text.trim();

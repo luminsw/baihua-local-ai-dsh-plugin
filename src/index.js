@@ -34,6 +34,10 @@ export const Config = z.object({
   baihuaShimUrl: z.string().default("http://127.0.0.1:8791/mg/ai/v1"),
   /** 百花视觉服务（Qwen2.5-VL，图片识别）。 */
   visionUrl: z.string().default("http://127.0.0.1:8801"),
+  /** 百花算力池统一网关（/mg/pool/v1，按模型名全网路由 + failover）。空=不探测。 */
+  poolUrl: z.string().default(""),
+  /** 算力池网关鉴权 token（BAIHUA_AI_EXTERNAL_TOKEN 未配置时可留空）。 */
+  poolToken: z.string().default(""),
   /** 遗留 openvino_llm_server.py 实例扫描（一模型一端口）。默认关闭。 */
   llmServerHost: z.string().default("127.0.0.1"),
   llmServerPorts: z.array(z.number()).default([]),
@@ -81,6 +85,8 @@ export function apply(ctx, config) {
     ovmsUrl: config.ovmsUrl,
     baihuaShimUrl: config.baihuaShimUrl,
     visionUrl: config.visionUrl,
+    poolUrl: config.poolUrl,
+    poolToken: config.poolToken,
     llmServerHost: config.llmServerHost,
     llmServerPorts: config.llmServerPorts,
     llmServerBasePath: config.llmServerBasePath,
@@ -153,7 +159,7 @@ export function apply(ctx, config) {
             name: m.name ?? null,
             owner: m.owner ?? null,
             inputModalities:
-              m.type === "vision" && (m.source === "ovms" || m.source === "shim")
+              m.type === "vision" && (m.source === "ovms" || m.source === "shim" || m.source === "pool")
                 ? ["text", "image"]
                 : ["text"],
           })),

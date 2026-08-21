@@ -26,6 +26,7 @@ export async function chatCompletion({
   stop,
   signal,
   timeoutMs = 120000,
+  token = "",
 }) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error("local AI timeout")), timeoutMs);
@@ -42,9 +43,11 @@ export async function chatCompletion({
     if (typeof maxTokens === "number") body.max_tokens = maxTokens;
     if (Array.isArray(stop) && stop.length) body.stop = stop;
 
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${endpoint}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: ac.signal,
     });
@@ -93,6 +96,7 @@ export async function* chatCompletionStream({
   stop,
   signal,
   timeoutMs = 180000,
+  token = "",
 }) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error("local AI stream timeout")), timeoutMs);
@@ -104,9 +108,11 @@ export async function* chatCompletionStream({
     if (typeof maxTokens === "number") body.max_tokens = maxTokens;
     if (Array.isArray(stop) && stop.length) body.stop = stop;
 
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${endpoint}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: ac.signal,
     });

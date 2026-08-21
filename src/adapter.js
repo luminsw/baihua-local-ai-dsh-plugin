@@ -11,15 +11,15 @@
 import { LlmAdapter, LlmError } from "@deepseek-ai/dsh-llm";
 import { chatCompletionStream } from "./chat.js";
 
-const PROVIDER_NAME = "百花本地 AI（OpenVINO）";
+const PROVIDER_NAME = "百花本地 AI（OpenVINO/算力池）";
 
 function messageRole(m) {
   return m.role === "system" ? "system" : m.role === "assistant" ? "assistant" : "user";
 }
 
-/** 该能力条目能否作为"对话+看图"模型（OVMS/shim 的 vision 模型；:8801 识别服务不算）。 */
+/** 该能力条目能否作为"对话+看图"模型（OVMS/shim/算力池网关的 vision 模型；:8801 识别服务不算）。 */
 function isChatVision(entry) {
-  return entry.type === "vision" && (entry.source === "ovms" || entry.source === "shim");
+  return entry.type === "vision" && (entry.source === "ovms" || entry.source === "shim" || entry.source === "pool");
 }
 
 /**
@@ -176,6 +176,7 @@ export class BaihuaLocalAdapter extends LlmAdapter {
         stop: options.stop,
         signal: options.signal,
         timeoutMs: this.config.timeoutMs,
+        token: entry.token,
       })) {
         if (ev.kind === "delta") {
           if (!started) {
