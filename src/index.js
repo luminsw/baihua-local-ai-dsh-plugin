@@ -11,10 +11,10 @@
  *  4. 可选：把会话标题等辅助 LLM 调用自动路由到本地模型（routeAuxiliaryCalls，失败自动回退远程）。
  *  5. 在 webServer 暴露 GET /dsh-local-ai/status 便于观察。
  *
- * 安装：复制到 $DSH_HOME/profiles/node_modules/，并在 $DSH_HOME/cordis.patch.yml 的 insert 列表加入：
- *   - id: baihua-local-ai
- *     name: 'baihua-local-ai-dsh-plugin'
- *     config: { }
+ * 安装：本包是标准 DSH 组合包（package.json 声明 dsh.bundle），执行
+ *   dsh plugin --profile web add github:luminsw/baihua-local-ai-dsh-plugin
+ * 后由 profile 组合自动应用 cordis.patch.yml 层；配置项按 id 在 profile 的
+ * cordis.patch.yml 里覆盖（如 - id: dsh-baihua-local-ai / config: {...}）。
  */
 import z from "@deepseek-ai/schemastery";
 import { BaihuaLocalAdapter } from "./adapter.js";
@@ -89,14 +89,8 @@ export function apply(ctx, config) {
   });
 
   // ---------- 探测循环 ----------
-  let timer = null;
   const probeSignal = new AbortController();
   void caps.probe(probeSignal.signal).catch(() => {});
-  if (config.probeIntervalMs > 0) {
-    timer = setInterval(() => {
-      void caps.probe(probeSignal.signal).catch(() => {});
-    }, config.probeIntervalMs);
-  }
 
   // ---------- LLM 提供方注册 ----------
   const attachments = ctx.get("attachments");
@@ -232,20 +226,32 @@ export function apply(ctx, config) {
       `本地模型：${caps.list().filter((m) => m.healthy).length} 个在线。`,
   );
 
-  return () => {
-    probeSignal.abort();
-    if (timer) clearInterval(timer);
-    try {
-      handle();
-    } catch {
-      /* noop */
-    }
-    try {
-      disposeTool();
-    } catch {
-      /* noop */
-    }
-    if (disposeRoute) disposeRoute();
-    if (disposeAuxRoute) disposeAuxRoute();
-  };
+  // ---------- 生命周期清理（ctx.effect：插件卸载/热重载时自动执行） ----------
+  // 说明：ctx.on / ctx.tools.register / ctx.llm.registerAdapter 等经 ctx 注册的能力
+  // 在插件卸载时会被 Cordis 自动清理；这里只需显式清理原始资源（探测定时器、
+  // AbortController）与 webServer 路由（register 返回的 disposer 不属于 ctx 注册）。
+  ctx.effect(() => {
+    const timer =
+      config.probeIntervalMs > 0
+        ? setInterval(() => {
+            void caps.probe(probeSignal.signal).catch(() => {});
+          }, config.probeIntervalMs)
+        : null;
+    return () => {
+      probeSignal.abort();
+      if (timer) clearInterval(timer);
+      try {
+        handle();
+      } catch {
+        /* noop */
+      }
+      try {
+        disposeTool();
+      } catch {
+        /* noop */
+      }
+      if (disposeRoute) disposeRoute();
+      if (disposeAuxRoute) disposeAuxRoute();
+    };
+  });
 }

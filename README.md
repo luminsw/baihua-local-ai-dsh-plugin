@@ -15,22 +15,31 @@
 
 ## 安装
 
-```bash
-# 1. 把插件目录复制到 DSH profile 的 node_modules（与 baihua-dsh-plugin 同位置）
-cp -r baihua-local-ai-dsh-plugin ~/.dsh/profiles/node_modules/
+本插件是标准 DSH **组合包（bundle）**：`package.json` 声明了 `dsh.bundle`，
+安装后由 profile 组合自动应用其 `cordis.patch.yml` 层，无需手动改补丁。
 
-# 2. 在 $DSH_HOME/cordis.patch.yml 的 insert 列表追加：
+```bash
+# 1. 用 DSH 的 plugin 命令安装（自动激活组合层；--profile 指向实际使用的 profile）
+dsh plugin --profile web add github:luminsw/baihua-local-ai-dsh-plugin
 ```
+
+> ⚠️ 从 git 安装会拉取源码并运行包的 `prepare` 脚本；pnpm ≥ 10 首次需要显式授权
+> （`dsh plugin` 会提示把包键加入该 profile 的 `pnpm-workspace.yaml` 的
+> `allowBuilds`，然后重新执行 `add`）。
+
+# 2. （可选）在 $DSH_HOME/cordis.patch.yml 的 insert 列表按 id 覆盖配置：
 
 ```yaml
     # baihua-local-ai-dsh-plugin：让 DSH 自动使用百花本机 AI（OpenVINO 等），省线上 token
-    - id: baihua-local-ai
-      name: 'baihua-local-ai-dsh-plugin'
+    - id: dsh-baihua-local-ai
       config: { }
 ```
 
 > 配置写好后重启 DSH web（或等待 HMR 热加载补丁生效）。确认加载：访问
 > http://127.0.0.1:3080/dsh-local-ai/status，应返回探测到的模型列表。
+
+> 旧方式（复制到 `profiles/node_modules` 再手改 `cordis.patch.yml`）仍然可用，
+> 但不享受 `dsh plugin` 的层管理；推荐统一走上面的 bundle 安装。
 
 ## 配置项
 

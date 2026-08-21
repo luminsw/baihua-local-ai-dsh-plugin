@@ -1,0 +1,12 @@
+# baihua-local-ai-dsh-plugin 组合包 patch：注册百花本机 AI（OVMS/OpenVINO）到 DSH。
+#
+# 安装本包（dsh plugin --profile web add github:luminsw/baihua-local-ai-dsh-plugin）后，
+# profile 组合（dsh.profile.bundles）会自动应用本层；如需调整，在 profile 自己的
+# cordis.patch.yml 里按 id 覆盖 config（后应用的层按行胜出）：
+#   - id: dsh-baihua-local-ai
+#     config:
+#       ovmsUrl: http://127.0.0.1:8000/v1
+
+- insert:
+    - id: dsh-baihua-local-ai
+      name: baihua-local-ai-dsh-plugin

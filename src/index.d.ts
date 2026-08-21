@@ -49,4 +49,4 @@ export declare const name: string;
 export declare const inject: string[];
 export declare const Config: import("@deepseek-ai/schemastery").Schema<Config, Config>;
 export declare class BaihuaLocalAdapter extends LlmAdapter {}
-export declare function apply(ctx: Context, config: Config): () => void;
+export declare function apply(ctx: Context, config: Config): void;
