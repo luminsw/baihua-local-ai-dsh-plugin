@@ -61,7 +61,7 @@ dsh plugin --profile web add github:luminsw/baihua-local-ai-dsh-plugin
 | ovmsUrl | http://127.0.0.1:8000/v1 | OVMS OpenAI 兼容端点 |
 | baihuaShimUrl | http://127.0.0.1:8791/mg/ai/v1 | 百花 AI OpenAI 兼容 shim |
 | visionUrl | http://127.0.0.1:8801 | 百花视觉服务 |
-| poolUrl | （空） | 百花算力池统一网关（/mg/pool/v1，全网路由 + failover），如 http://192.168.3.13/mg/pool/v1 |
+| poolUrl | （空） | 百花算力池统一网关（/mg/pool/v1，全网路由 + failover）。本机插件访问本机算力池用 `http://127.0.0.1/mg/pool/v1`；跨机才填对方局域网 IP |
 | poolToken | （空） | 算力池网关鉴权 token（BAIHUA_AI_EXTERNAL_TOKEN 未配置时可留空） |
 | llmServerPorts | [] | 遗留 openvino_llm_server 端口段（如 [8001,8002]） |
 | probeIntervalMs | 60000 | 探测周期 |
