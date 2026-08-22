@@ -2,6 +2,18 @@
 
 让 DeepSeek Harness (DSH) 自动**检测并使用百花（Baihua）提供的本机 AI**，把"小而有界"的任务分给本地模型完成，**降低线上 token 消耗**。与兄弟插件 baihua-dsh-plugin（百花 Web → DSH 的桥）方向相反：**本插件是 DSH → 百花本地 AI**。
 
+## 关于百花（Baihua）
+
+[百花](https://github.com/luminsw/baihua) 是一个面向本地/局域网的家庭服务端，提供知识库（笔记/搜索/Anki 卡片）、家庭数据（记账/任务/打卡/病历本）、AI 推理（本机 OpenVINO/OVMS + 云端模型路由 + 算力池互联）与 `bh` 运维 CLI；由 `Baihua.Family`(8788)、`Baihua.AI`(8791)、`Baihua.Vault`(8790)、`Baihua.Web`(5177) 四个服务组成。
+
+**定位：百花 = 能力提供方（本机模型 / 知识库 / 家庭数据），DSH = 编排与交互面。** 本插件负责把百花的本地算力（OVMS :8000、AI shim :8791、视觉服务）接入 DSH，让主 agent 与 subagent 优先用本机模型处理小任务，省线上 token。
+
+同族插件：
+
+- [`baihua-dsh-plugin`](https://github.com/luminsw/baihua-dsh-plugin) — 百花 Web → DSH 桥（agent 会话 + `bh_*` 运维 + 百花数据工具 + 设置页状态卡片）
+- [`baihua-mcp-server`](https://github.com/luminsw/baihua-mcp-server) — 百花 → 任意 MCP 客户端（标准 MCP 只读能力）
+- [`hysteria-dsh-plugin`](https://github.com/luminsw/hysteria-dsh-plugin) — 本机 Hysteria 2 代理管理
+
 ## 它能做什么
 
 | 能力 | 说明 |
