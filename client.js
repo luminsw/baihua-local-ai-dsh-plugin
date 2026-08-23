@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState({});
       const [saving, setSaving] = useState(false);
       const [saveMsg, setSaveMsg] = useState(null);
-      const [open, setOpen] = useState(true);
+      const [open, setOpen] = useState(false);
 
       useEffect(() => {
         if (!scope) return;
@@ -143,7 +143,9 @@ window.__ModuleLoader__.load({
             React.createElement("span", { style: { fontSize: 15, fontWeight: 600, lineHeight: 1.4, color: "var(--dsw-alias-label-primary)" } }, "百花本地 AI"),
             React.createElement("span", { style: { fontSize: 13, lineHeight: 1.5, color: "var(--dsw-alias-label-tertiary)" } }, "探测并路由百花本机 AI（OVMS/视觉/shim/算力池），可配置地址与 token。")
           ),
-          React.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)", flex: "none", fontSize: 12, transition: "transform .16s", transform: open ? "rotate(180deg)" : "none" } }, "▾")
+          React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 14 14", fill: "none", style: { color: "var(--dsw-alias-label-tertiary)", flex: "none", transition: "transform .16s", transform: open ? "rotate(180deg)" : "none" } },
+            React.createElement("path", { d: "M3 5.5L7 9.5L11 5.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" })
+          )
         ),
         open
           ? React.createElement(
