@@ -27,6 +27,8 @@ function buildSystemPrompt(format) {
 }
 
 export function smallTaskTool(caps, config) {
+  // 支持传 config 对象或 getter（设置页表单改了即时生效）
+  const cfg = () => (typeof config === "function" ? config() : config);
   return defineTool({
     name: "local_ai_small_task",
     description:
@@ -64,9 +66,9 @@ export function smallTaskTool(caps, config) {
       const input = String(args.input ?? "");
       const task = String(args.task ?? "").trim();
       if (!task) throw new Error("task 不能为空");
-      if (input.length > config.smallTaskMaxPromptChars) {
+      if (input.length > cfg().smallTaskMaxPromptChars) {
         throw new Error(
-          `输入过长（${input.length} 字符 > 上限 ${config.smallTaskMaxPromptChars}）：本地模型上下文有限，请改用远程模型处理该任务。`,
+          `输入过长（${input.length} 字符 > 上限 ${cfg().smallTaskMaxPromptChars}）：本地模型上下文有限，请改用远程模型处理该任务。`,
         );
       }
       const model = caps.pickChatModel();
@@ -77,8 +79,8 @@ export function smallTaskTool(caps, config) {
       }
       const format = args.format ?? "plain";
       const maxTokens = Math.min(
-        Math.max(1, Number(args.maxTokens) || config.smallTaskMaxTokens),
-        config.smallTaskMaxTokens,
+        Math.max(1, Number(args.maxTokens) || cfg().smallTaskMaxTokens),
+        cfg().smallTaskMaxTokens,
       );
       const { chatCompletion } = await import("./chat.js");
       const result = await chatCompletion({
@@ -88,10 +90,10 @@ export function smallTaskTool(caps, config) {
           { role: "system", content: buildSystemPrompt(format) },
           { role: "user", content: `任务：${task}\n\n内容：\n${input}` },
         ],
-        temperature: config.smallTaskTemperature,
+        temperature: cfg().smallTaskTemperature,
         maxTokens,
         signal: exec.signal,
-        timeoutMs: config.timeoutMs,
+        timeoutMs: cfg().timeoutMs,
         token: model.token,
       });
 

@@ -96,7 +96,8 @@ export class BaihuaLocalAdapter extends LlmAdapter {
   constructor(caps, config, attachments = null) {
     super();
     this.caps = caps;
-    this.config = config;
+    // 支持传 config 对象或 getter（设置页表单改了即时生效）
+    this.config = () => (typeof config === "function" ? config() : config);
     this.attachments = attachments;
   }
 
@@ -132,7 +133,7 @@ export class BaihuaLocalAdapter extends LlmAdapter {
       description: `来源:${entry.source} · ${entry.params}`,
       inputModalities: isChatVision(entry) ? ["text", "image"] : ["text"],
       context: { contextWindow: entry.contextWindow ?? 8192 },
-      defaultMaxTokens: this.config.defaultMaxTokens,
+      defaultMaxTokens: this.config().defaultMaxTokens,
     };
   }
 
@@ -172,10 +173,10 @@ export class BaihuaLocalAdapter extends LlmAdapter {
         model: entry.id,
         messages,
         temperature: options.temperature,
-        maxTokens: options.maxTokens ?? this.config.defaultMaxTokens,
+        maxTokens: options.maxTokens ?? this.config().defaultMaxTokens,
         stop: options.stop,
         signal: options.signal,
-        timeoutMs: this.config.timeoutMs,
+        timeoutMs: this.config().timeoutMs,
         token: entry.token,
       })) {
         if (ev.kind === "delta") {

@@ -17,6 +17,7 @@
  * cordis.patch.yml 里覆盖（如 - id: dsh-baihua-local-ai / config: {...}）。
  */
 import z from "@deepseek-ai/schemastery";
+import { settingsNamespace, installSettingsSection } from "@deepseek-ai/dsh-settings";
 import { BaihuaLocalAdapter } from "./adapter.js";
 import { createCapabilityStore } from "./probe.js";
 import { smallTaskTool } from "./tool.js";
@@ -24,6 +25,9 @@ import { chatCompletion } from "./chat.js";
 
 export const name = "dsh-baihua-local-ai";
 export const inject = ["llm", "tools", "webServer"];
+
+/** 设置页插件卡片命名空间（客户端卡片以同名 key 注册）。 */
+const SETTINGS_NS = settingsNamespace("baihua-local-ai");
 
 export const Config = z.object({
   /** 注册到 ctx.llm 的提供方路由键。 */
@@ -37,7 +41,7 @@ export const Config = z.object({
   /** 百花算力池统一网关（/mg/pool/v1，按模型名全网路由 + failover）。空=不探测。 */
   poolUrl: z.string().default(""),
   /** 算力池网关鉴权 token（BAIHUA_AI_EXTERNAL_TOKEN 未配置时可留空）。 */
-  poolToken: z.string().default(""),
+  poolToken: z.string().role("secret").default(""),
   /** 遗留 openvino_llm_server.py 实例扫描（一模型一端口）。默认关闭。 */
   llmServerHost: z.string().default("127.0.0.1"),
   llmServerPorts: z.array(z.number()).default([]),
@@ -64,7 +68,7 @@ export const Config = z.object({
    */
   routeAuxiliaryCalls: z.union([z.const("off"), z.const("session-title"), z.const("all")]).default("session-title"),
   /** 状态端点鉴权 token（留空 = 回环免鉴权，与兄弟插件约定一致）。 */
-  token: z.string(),
+  token: z.string().role("secret"),
 });
 
 function chunksForText(text, usage, maxTokens) {
@@ -81,18 +85,14 @@ function chunksForText(text, usage, maxTokens) {
 }
 
 export function apply(ctx, config) {
-  const caps = createCapabilityStore({
-    ovmsUrl: config.ovmsUrl,
-    baihuaShimUrl: config.baihuaShimUrl,
-    visionUrl: config.visionUrl,
-    poolUrl: config.poolUrl,
-    poolToken: config.poolToken,
-    llmServerHost: config.llmServerHost,
-    llmServerPorts: config.llmServerPorts,
-    llmServerBasePath: config.llmServerBasePath,
-    contextWindows: config.contextWindows,
-    defaultMaxTokens: config.defaultMaxTokens,
+  // 设置页表单可改配置：setSource 重绑 current，运行时读最新值（修 setSource no-op bug）。
+  let current = () => config;
+  installSettingsSection(ctx, SETTINGS_NS, Config, config, {
+    setSource: (source) => { current = source; },
+    onChange: () => {},
   });
+  const cfg = () => current();
+  const caps = createCapabilityStore(cfg);
 
   // ---------- 探测循环 ----------
   const probeSignal = new AbortController();
@@ -102,33 +102,26 @@ export function apply(ctx, config) {
   const attachments = ctx.get("attachments");
   const adapter = new BaihuaLocalAdapter(
     caps,
-    {
-      defaultMaxTokens: config.defaultMaxTokens,
-      timeoutMs: config.timeoutMs,
-    },
+    cfg,
     attachments,
   );
-  const handle = ctx.llm.registerAdapter([config.provider], adapter);
+  const handle = ctx.llm.registerAdapter([cfg().provider], adapter);
 
   // ---------- 小任务工具 ----------
   const disposeTool = ctx.tools.register(
-    smallTaskTool(caps, {
-      smallTaskMaxTokens: config.smallTaskMaxTokens,
-      smallTaskMaxPromptChars: config.smallTaskMaxPromptChars,
-      smallTaskTemperature: config.smallTaskTemperature,
-      timeoutMs: config.timeoutMs,
-    }),
+    smallTaskTool(caps, cfg),
   );
 
   // ---------- 状态端点 ----------
   const webServer = ctx.get("webServer");
-  const statusToken = config.token;
+  const statusToken = () => cfg().token;
   function authorized(req) {
-    if (!statusToken) return true;
+    const st = statusToken();
+    if (!st) return true;
     const url = new URL(req.url ?? "/", "http://localhost");
-    if (url.searchParams.get("token") === statusToken) return true;
+    if (url.searchParams.get("token") === st) return true;
     const header = req.headers?.authorization;
-    return typeof header === "string" && header === `Bearer ${statusToken}`;
+    return typeof header === "string" && header === `Bearer ${st}`;
   }
   const disposeRoute = webServer?.register({
     kind: "exact",
@@ -145,7 +138,7 @@ export function apply(ctx, config) {
         JSON.stringify({
           service: "dsh-baihua-local-ai",
           ok: true,
-          provider: config.provider,
+          provider: cfg().provider,
           models: models.map((m) => ({
             id: m.id,
             source: m.source,
@@ -172,13 +165,13 @@ export function apply(ctx, config) {
 
   // ---------- 可选：辅助调用路由（会话标题等小调用 → 本地） ----------
   const disposeAuxRoute =
-    config.routeAuxiliaryCalls !== "off"
+    cfg().routeAuxiliaryCalls !== "off"
       ? ctx.on("llm/stream", async function* (options, next) {
           const purpose = options.purpose;
           const eligible =
             purpose === "session-title" ||
-            (purpose === "compaction" && config.routeAuxiliaryCalls === "all");
-          if (!eligible || options.provider === config.provider) {
+            (purpose === "compaction" && cfg().routeAuxiliaryCalls === "all");
+          if (!eligible || options.provider === cfg().provider) {
             yield* next();
             return;
           }
@@ -209,10 +202,10 @@ export function apply(ctx, config) {
               endpoint: model.endpoint,
               model: model.id,
               messages: wireMessages,
-              maxTokens: Math.min(config.defaultMaxTokens, 512),
+              maxTokens: Math.min(cfg().defaultMaxTokens, 512),
               temperature: 0.3,
               signal: options.signal,
-              timeoutMs: config.timeoutMs,
+              timeoutMs: cfg().timeoutMs,
             });
             if (result.text?.trim()) {
               for (const chunk of chunksForText(result.text, result.usage)) {
@@ -228,7 +221,7 @@ export function apply(ctx, config) {
       : null;
 
   console.log(
-    `[dsh-baihua-local-ai] loaded (provider=${config.provider}, auxRouting=${config.routeAuxiliaryCalls}). ` +
+    `[dsh-baihua-local-ai] loaded (provider=${cfg().provider}, auxRouting=${cfg().routeAuxiliaryCalls}). ` +
       `等待首次探测…（模型数在探测完成后打印）`,
   );
   // 首次探测完成后再报告模型数（避免启动日志显示 0 个的假象）
@@ -244,10 +237,10 @@ export function apply(ctx, config) {
   // AbortController）与 webServer 路由（register 返回的 disposer 不属于 ctx 注册）。
   ctx.effect(() => {
     const timer =
-      config.probeIntervalMs > 0
+      cfg().probeIntervalMs > 0
         ? setInterval(() => {
             void caps.probe(probeSignal.signal).catch(() => {});
-          }, config.probeIntervalMs)
+          }, cfg().probeIntervalMs)
         : null;
     return () => {
       probeSignal.abort();

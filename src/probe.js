@@ -201,6 +201,8 @@ async function probeLlmServers({ host = "127.0.0.1", ports = [], basePath = "/v1
  * 能力表：进程内单例。探测结果写入这里；adapter / tool / 状态端点都从这里读。
  */
 export function createCapabilityStore(config) {
+  // 支持传 config 对象或 getter（设置页表单改了即时生效）
+  const cfg = () => (typeof config === "function" ? config() : config);
   /** id -> 能力条目 */
   const byId = new Map();
   /** source -> 最近一次探测错误（用于状态展示） */
@@ -209,7 +211,7 @@ export function createCapabilityStore(config) {
   let probing = false;
 
   function effectiveContext(id, fallback) {
-    const override = config.contextWindows?.[id];
+    const override = cfg().contextWindows?.[id];
     if (typeof override === "number" && override > 0) return override;
     return DEFAULT_CONTEXT_WINDOWS[id] ?? fallback ?? 8192;
   }
@@ -220,7 +222,7 @@ export function createCapabilityStore(config) {
       ...prev,
       ...entry,
       contextWindow: entry.contextWindow ?? effectiveContext(entry.id, prev?.contextWindow),
-      maxTokens: entry.maxTokens ?? config.defaultMaxTokens,
+      maxTokens: entry.maxTokens ?? cfg().defaultMaxTokens,
       params: entry.params ?? DEFAULT_PARAMS[entry.id] ?? "?",
       healthy: true,
       lastProbeAt: Date.now(),
@@ -238,13 +240,13 @@ export function createCapabilityStore(config) {
     try {
       // 先清空上次的健康状态，再重探（服务可能已下线）
       for (const e of byId.values()) e.healthy = false;
-      if (config.ovmsUrl) await probeOvms(config.ovmsUrl, caps, signal);
-      if (config.baihuaShimUrl) await probeShim(config.baihuaShimUrl, caps, signal);
-      if (config.visionUrl) await probeVision(config.visionUrl, caps, signal);
-      if (config.poolUrl) await probePool(config.poolUrl, caps, signal, config.poolToken ?? "");
-      if (config.llmServerPorts?.length) {
+      if (cfg().ovmsUrl) await probeOvms(cfg().ovmsUrl, caps, signal);
+      if (cfg().baihuaShimUrl) await probeShim(cfg().baihuaShimUrl, caps, signal);
+      if (cfg().visionUrl) await probeVision(cfg().visionUrl, caps, signal);
+      if (cfg().poolUrl) await probePool(cfg().poolUrl, caps, signal, cfg().poolToken ?? "");
+      if (cfg().llmServerPorts?.length) {
         await probeLlmServers(
-          { host: config.llmServerHost ?? "127.0.0.1", ports: config.llmServerPorts, basePath: config.llmServerBasePath ?? "/v1" },
+          { host: cfg().llmServerHost ?? "127.0.0.1", ports: cfg().llmServerPorts, basePath: cfg().llmServerBasePath ?? "/v1" },
           caps,
           signal,
         );
