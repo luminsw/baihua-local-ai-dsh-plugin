@@ -34,8 +34,8 @@ export const Config = z.object({
   provider: z.string().default("baihua-local"),
   /** OVMS OpenAI 兼容端点（/v1 前缀，含 /models 与 /chat/completions）。 */
   ovmsUrl: z.string().default("http://127.0.0.1:8000/v1"),
-  /** 百花 AI 的 OpenAI 兼容 shim（按模型名路由到本地/云端提供方）。 */
-  baihuaShimUrl: z.string().default("http://127.0.0.1:8791/mg/ai/v1"),
+  /** 百花 AI 的 OpenAI 兼容 shim（按模型名路由到本地/云端提供方）。留空=自举。 */
+  baihuaShimUrl: z.string().default(""),
   /** 百花视觉服务（Qwen2.5-VL，图片识别）。 */
   visionUrl: z.string().default("http://127.0.0.1:8801"),
   /** 百花算力池统一网关（/mg/pool/v1，按模型名全网路由 + failover）。空=不探测。 */
@@ -91,7 +91,25 @@ export function apply(ctx, config) {
     setSource: (source) => { current = source; },
     onChange: () => {},
   });
-  const cfg = () => current();
+  // 零配置自举：从本机 /api/dsh/config 拉 poolUrl/poolToken/baihuaShimUrl（用户显式配置优先）。
+  let bootstrap = {};
+  try {
+    const base = (current().familyUrl || "http://127.0.0.1").trim().replace(/\/+$/, "");
+    fetch(`${base}/api/dsh/config`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j && j.ok) bootstrap = j; })
+      .catch(() => {});
+  } catch { /* noop */ }
+  const cfg = () => {
+    const c = current();
+    return {
+      ...c,
+      poolUrl: c.poolUrl || bootstrap.poolUrl || "",
+      poolToken: c.poolToken || bootstrap.poolToken || "",
+      baihuaShimUrl: c.baihuaShimUrl || bootstrap.aiShimUrl || "",
+      aiUrl: c.aiUrl || bootstrap.aiUrl || "",
+    };
+  };
   const caps = createCapabilityStore(cfg);
 
   // ---------- 探测循环 ----------
