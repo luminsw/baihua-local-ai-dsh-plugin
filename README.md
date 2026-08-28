@@ -11,7 +11,7 @@
 同族插件：
 
 - [`baihua-dsh-plugin`](https://github.com/luminsw/baihua-dsh-plugin) — 百花 Web → DSH 桥（agent 会话 + `bh_*` 运维 + 百花数据工具 + 设置页状态卡片）
-- [`baihua-mcp-server`](https://github.com/luminsw/baihua-mcp-server) — 百花 → 任意 MCP 客户端（标准 MCP 只读能力）
+
 - [`hysteria-dsh-plugin`](https://github.com/luminsw/hysteria-dsh-plugin) — 本机 Hysteria 2 代理管理
 
 ## 它能做什么
