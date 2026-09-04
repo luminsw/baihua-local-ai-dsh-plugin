@@ -17,7 +17,6 @@
  * cordis.patch.yml 里覆盖（如 - id: dsh-baihua-local-ai / config: {...}）。
  */
 import z from "@deepseek-ai/schemastery";
-import { settingsNamespace, installSettingsSection } from "@deepseek-ai/dsh-settings";
 import { BaihuaLocalAdapter } from "./adapter.js";
 import { createCapabilityStore } from "./probe.js";
 import { smallTaskTool } from "./tool.js";
@@ -27,7 +26,7 @@ export const name = "dsh-baihua-local-ai";
 export const inject = ["llm", "tools", "webServer"];
 
 /** 设置页插件卡片命名空间（客户端卡片以同名 key 注册）。 */
-const SETTINGS_NS = settingsNamespace("baihua-local-ai");
+const SETTINGS_NS = "baihua-local-ai";
 
 export const Config = z.object({
   /** 注册到 ctx.llm 的提供方路由键。 */
@@ -87,9 +86,11 @@ function chunksForText(text, usage, maxTokens) {
 export function apply(ctx, config) {
   // 设置页表单可改配置：setSource 重绑 current，运行时读最新值（修 setSource no-op bug）。
   let current = () => config;
-  installSettingsSection(ctx, SETTINGS_NS, Config, config, {
-    setSource: (source) => { current = source; },
-    onChange: () => {},
+  ctx.inject(["settings"], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, config, {
+      setSource: (source) => { current = source; },
+      onChange: () => {},
+    });
   });
   // 零配置自举：从本机 /api/dsh/config 拉 poolUrl/poolToken/baihuaShimUrl（用户显式配置优先）。
   let bootstrap = {};
