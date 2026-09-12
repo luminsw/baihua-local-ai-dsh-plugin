@@ -8,8 +8,46 @@
  *  - 输入长度上限 smallTaskMaxPromptChars（默认 8000 字符），超出直接拒绝并建议走远程；
  *  - 输出上限 smallTaskMaxTokens（默认 512），防止本地模型长文输出；
  *  - 无可用本地模型 / 调用失败时抛错，主 agent 自行回退远程完成。
+ *
+ * "思考型"模型（本机 qwen3-4b 就是）：实测同样一个小任务
+ *   - 原样提问：200 tok 全是 <think> 推理、10.1s、**根本没输出答案**；
+ *   - 追加 Qwen3 软开关 `/no_think`：25 tok、1.3s、直接给答案。
+ * 所以默认追加该软开关（disableThinking），并额外把推理块从结果里剥掉兜底
+ * （chat_template_kwargs.enable_thinking=false 在本机 OVMS 上无效，已实测）。
  */
 import { defineTool } from "@deepseek-ai/dsh-tools";
+
+/** Qwen3 系列的非思考软开关（写在用户消息里；别的模型忽略它也无害）。 */
+const NO_THINK_HINT = "/no_think";
+
+/**
+ * 剥掉模型输出的推理块：
+ *  - 成对标签 `<think>…</think>` / `<thinking>…</thinking>`（大小写不敏感）
+ *  - 结尾未闭合的开标签（达到 token 上限时很常见）：从最后一个开标签截到结尾
+ * 返回 { text, hadReasoning, truncatedReasoning }。
+ */
+export function stripReasoning(raw) {
+  const input = String(raw ?? "");
+
+  // 1) 成对标签（用反向引用同时覆盖 think / thinking）
+  const pairRe = /<(think|thinking)>[\s\S]*?<\/\1>/gi;
+  const hadPairs = pairRe.test(input);
+  let text = input.replace(pairRe, "");
+
+  // 2) 未闭合的开标签：从最后一个开标签截到结尾
+  const openRe = /<(think|thinking)>/gi;
+  let lastOpenIdx = -1;
+  let m;
+  while ((m = openRe.exec(text)) !== null) lastOpenIdx = m.index;
+  const truncatedReasoning = lastOpenIdx >= 0;
+  if (truncatedReasoning) text = text.slice(0, lastOpenIdx);
+
+  return {
+    text: text.trim(),
+    hadReasoning: hadPairs || truncatedReasoning,
+    truncatedReasoning,
+  };
+}
 
 function buildSystemPrompt(format) {
   const fmt =
@@ -21,6 +59,7 @@ function buildSystemPrompt(format) {
   return [
     "你是一个运行在本机的轻量 AI 助手（OpenVINO 加速）。",
     "你的回答必须非常简短（通常不超过 3-5 句话；JSON 模式不超 10 个字段）。",
+    "不要输出思考过程，直接给出结果。",
     fmt,
     "语言：跟随用户输入的语言回答。",
   ].join("\n");
@@ -82,13 +121,15 @@ export function smallTaskTool(caps, config) {
         Math.max(1, Number(args.maxTokens) || cfg().smallTaskMaxTokens),
         cfg().smallTaskMaxTokens,
       );
+      // "思考型"模型默认加 /no_think，否则预算常被推理吃光、拿不到答案（实测 200tok/10s 全是推理）
+      const noThink = cfg().disableThinking !== false;
       const { chatCompletion } = await import("./chat.js");
       const result = await chatCompletion({
         endpoint: model.endpoint,
         model: model.id,
         messages: [
           { role: "system", content: buildSystemPrompt(format) },
-          { role: "user", content: `任务：${task}\n\n内容：\n${input}` },
+          { role: "user", content: `任务：${task}\n\n内容：\n${input}${noThink ? `\n\n${NO_THINK_HINT}` : ""}` },
         ],
         temperature: cfg().smallTaskTemperature,
         maxTokens,
@@ -97,7 +138,15 @@ export function smallTaskTool(caps, config) {
         token: model.token,
       });
 
-      let text = result.text.trim();
+      const stripped = stripReasoning(result.text);
+      let text = stripped.text;
+      if (!text && stripped.hadReasoning) {
+        // 模型只产出了推理（常见于达到 token 上限）——不要把它当答案返回
+        throw new Error(
+          `本地模型只输出了思考过程、没有给出答案（输出 ${result.usage.outputTokens} tok 可能被推理占满）。` +
+            `请重试、提高 maxTokens，或改用远程模型。`,
+        );
+      }
       if (format === "json") {
         const parsed = tryParseJson(text);
         if (parsed) text = JSON.stringify(parsed);

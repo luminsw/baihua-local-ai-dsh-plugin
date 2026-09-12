@@ -61,6 +61,12 @@ export const Config = z.object({
   defaultMaxTokens: z.number().default(1024),
   /** 小任务工具输出 token 上限。 */
   smallTaskMaxTokens: z.number().default(512),
+  /**
+   * 小任务是否禁用"思考"（默认 true）：给用户消息追加 Qwen3 软开关 `/no_think`。
+   * 本机 qwen3-4b 是思考型模型，实测不禁用时 200 tok / 10.1 s 全是 <think> 推理、拿不到答案；
+   * 禁用后 25 tok / 1.3 s 直接给答案。换成非 Qwen3 模型时该软开关会被忽略，无副作用。
+   */
+  disableThinking: z.boolean().default(true),
   /** 小任务工具输入（prompt 内容）字符上限——本地模型上下文有限的硬护栏。 */
   smallTaskMaxPromptChars: z.number().default(8000),
   /** 小任务采样温度（偏低=更稳、更省）。 */

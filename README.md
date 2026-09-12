@@ -67,6 +67,7 @@ dsh plugin --profile web add github:luminsw/baihua-local-ai-dsh-plugin
 | probeIntervalMs | 60000 | 探测周期 |
 | defaultMaxTokens | 1024 | 本地模型单请求输出上限 |
 | smallTaskMaxTokens | 512 | 小任务工具输出上限 |
+| disableThinking | true | 小任务禁用"思考"：给用户消息追加 Qwen3 软开关 `/no_think`。本机 qwen3-4b 是思考型模型，不禁用时实测 200 tok / 10.1 s 全是 `<think>` 推理、拿不到答案；禁用后 25 tok / 1.3 s 直接给答案。换非 Qwen3 模型时该软开关会被忽略，无副作用 |
 | smallTaskMaxPromptChars | 8000 | 小任务输入硬上限（本地上下文有限） |
 | smallTaskTemperature | 0.4 | 小任务采样温度（低=稳/省） |
 | contextWindows | {} | 按模型覆盖上下文：{"qwen2.5": 32768} |
@@ -112,6 +113,8 @@ provider: "baihua-local" + model: "qwen2.5" 覆盖，让子任务完全跑在本
 - 探测：GET {endpoint}/models（OVMS/shim）+ GET {vision}/health；全部静默容错。
 - 选型：小任务优先 OVMS（白花自研、零依赖、可并发），同来源取参数量最小者；上下文窗口按模型族保守估计，可配置覆盖。
 - 护栏：输入字符上限（smallTaskMaxPromptChars）+ 输出 token 上限（smallTaskMaxTokens/适配器 defaultMaxTokens）；任何本地失败都以明确错误返回，主 agent 自动回退远程。
+- 思考型模型：小任务默认禁用思考（`/no_think`），并把 `<think>…</think>` / 未闭合推理块从结果里剥掉；
+  若剥完只剩推理（预算被推理吃光），抛明确错误而不是把推理当答案返回。判断依据见 `disableThinking` 配置项说明。
 
 ## 依赖的百花能力（如缺则先加强百花）
 
