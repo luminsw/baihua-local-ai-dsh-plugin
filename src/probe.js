@@ -2,23 +2,29 @@
  * probe.js — 百花本地 AI 服务探测与能力表。
  *
  * 职责：
- *  - 探测 OVMS（OpenVINO Model Server，默认 127.0.0.1:8000/v1，OpenAI 兼容）
- *  - 探测百花 AI 的 OpenAI 兼容 shim（默认 127.0.0.1:8791/mg/ai/v1，按模型名路由到本地/云端提供方）
- *  - 探测视觉服务（默认 127.0.0.1:8801，Qwen2.5-VL 图片识别）
+ *  - 探测 OVMS（OpenVINO Model Server）OpenAI 兼容端点
+ *  - 探测百花 AI 的 OpenAI 兼容 shim（按模型名路由到本地/云端提供方）
+ *  - 探测百花视觉服务（如配置）
  *  - 可选：探测遗留 openvino_llm_server.py 端口段（8001-8030）
  *  - 为每个模型建立能力条目（类型/参数量/量化/上下文窗口/来源/端点），并维护可选的
  *    一次"轻量测速"延迟缓存。
  *
  * 探测原则：全部静默容错——任何服务不可达都不影响插件加载，能力表如实反映"当前可用"。
+ *
+ * 2026-09 架构变更提示：Windows 原生 OVMS 服务已退役，OVMS 改跑在 k3s（工作负载
+ * bh-openvino，仅集群内 ClusterIP:8000）；宿主机只暴露 Traefik :80。因此 ovmsUrl
+ * 默认为空（不探测），本地模型应经 shim / 算力池通道（都在 :80 上）暴露。
  */
 import net from "node:net";
 
-/** 按模型 id 推断上下文窗口（token）。本地小模型普遍 8K-32K，Qwen2.5 系列官方 32K。
+/** 按模型 id 推断上下文窗口（token）。本地小模型普遍 8K-32K，Qwen2.5/Qwen3 系列官方 32K。
  *  这是一个保守估计表，可在插件配置的 contextWindows 里逐模型覆盖。 */
 const DEFAULT_CONTEXT_WINDOWS = {
   "qwen2.5": 32768,
   "qwen2.5-vl-3b": 32768,
   "qwen2.5-vl-7b": 32768,
+  "qwen3-4b": 32768,
+  "qwen3-embedding-0.6b": 32768,
   "bge-small-zh": 512,
 };
 
@@ -27,6 +33,9 @@ const DEFAULT_PARAMS = {
   "qwen2.5": "7B",
   "qwen2.5-vl-3b": "3B",
   "qwen2.5-vl-7b": "7B",
+  // 本机 k3s bh-openvino 当前托管的两个模型（k8s/22a-openvino.yaml 的 model_config_list）
+  "qwen3-4b": "4B",
+  "qwen3-embedding-0.6b": "0.6B",
   "bge-small-zh": "24M",
 };
 
@@ -205,10 +214,13 @@ export function createCapabilityStore(config) {
   const cfg = () => (typeof config === "function" ? config() : config);
   /** id -> 能力条目 */
   const byId = new Map();
+  /** id -> 最近一次"被探测到"的轮次（用于清理已消失的模型/来源） */
+  const seenGen = new Map();
   /** source -> 最近一次探测错误（用于状态展示） */
   const errors = new Map();
   let lastProbeAt = 0;
   let probing = false;
+  let generation = 0;
 
   function effectiveContext(id, fallback) {
     const override = cfg().contextWindows?.[id];
@@ -218,6 +230,7 @@ export function createCapabilityStore(config) {
 
   function upsert(entry) {
     const prev = byId.get(entry.id);
+    seenGen.set(entry.id, generation);
     byId.set(entry.id, {
       ...prev,
       ...entry,
@@ -238,7 +251,10 @@ export function createCapabilityStore(config) {
     if (probing) return;
     probing = true;
     try {
-      // 先清空上次的健康状态，再重探（服务可能已下线）
+      // 新一轮：清空上一轮的健康状态与错误，并把"被探测到"的轮次推进
+      generation += 1;
+      const gen = generation;
+      errors.clear();
       for (const e of byId.values()) e.healthy = false;
       if (cfg().ovmsUrl) await probeOvms(cfg().ovmsUrl, caps, signal);
       if (cfg().baihuaShimUrl) await probeShim(cfg().baihuaShimUrl, caps, signal);
@@ -250,6 +266,14 @@ export function createCapabilityStore(config) {
           caps,
           signal,
         );
+      }
+      // 本轮没再被探测到的条目直接删掉：否则服务下线/来源关闭后，能力表里会长期留着
+      // healthy:false 的"幽灵模型"，误导小任务选型与状态卡片。
+      for (const id of [...byId.keys()]) {
+        if (seenGen.get(id) !== gen) {
+          byId.delete(id);
+          seenGen.delete(id);
+        }
       }
       lastProbeAt = Date.now();
     } finally {

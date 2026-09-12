@@ -31,12 +31,18 @@ const SETTINGS_NS = "baihua-local-ai";
 export const Config = z.object({
   /** 注册到 ctx.llm 的提供方路由键。 */
   provider: z.string().default("baihua-local"),
-  /** OVMS OpenAI 兼容端点（/v1 前缀，含 /models 与 /chat/completions）。 */
-  ovmsUrl: z.string().default("http://127.0.0.1:8000/v1"),
+  /** 百花后端服务地址（用于零配置自举拉取 poolUrl/shimUrl）。
+   *  注意：三服务合一 + 全容器化后宿主机只暴露 Traefik :80（8788/5177 仅在集群内），
+   *  所以这里写 http://127.0.0.1 或 http://<宿主IP>（不带端口）。 */
+  familyUrl: z.string().default("http://127.0.0.1"),
+  /** OVMS OpenAI 兼容端点（含 /models 与 /chat/completions）。
+   *  默认留空 = 不探测：Windows 原生 OVMS 已退役，OVMS 现只在 k3s 内（bh-openvino，
+   *  ClusterIP:8000，宿主机不可达）。本机模型请经 baihuaShimUrl / poolUrl 通道暴露。 */
+  ovmsUrl: z.string().default(""),
   /** 百花 AI 的 OpenAI 兼容 shim（按模型名路由到本地/云端提供方）。留空=自举。 */
   baihuaShimUrl: z.string().default(""),
-  /** 百花视觉服务（Qwen2.5-VL，图片识别）。 */
-  visionUrl: z.string().default("http://127.0.0.1:8801"),
+  /** 百花视觉服务（如 qwen2.5-vl，经 shim/OVMS 暴露）。默认留空 = 不探测（原 8801 端口已退役）。 */
+  visionUrl: z.string().default(""),
   /** 百花算力池统一网关（/mg/pool/v1，按模型名全网路由 + failover）。空=不探测。 */
   poolUrl: z.string().default(""),
   /** 算力池网关鉴权 token（BAIHUA_AI_EXTERNAL_TOKEN 未配置时可留空）。 */
@@ -93,14 +99,24 @@ export function apply(ctx, config) {
     });
   });
   // 零配置自举：从本机 /api/dsh/config 拉 poolUrl/poolToken/baihuaShimUrl（用户显式配置优先）。
+  // 不是"只拉一次"：DSH 可能先于百花启动，早期失败会永久留空；这里按 30s 退避重试，
+  // 拿到值（或用户已显式配置）后就不再打扰。
   let bootstrap = {};
-  try {
-    const base = (current().familyUrl || "http://127.0.0.1").trim().replace(/\/+$/, "");
-    fetch(`${base}/api/dsh/config`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j && j.ok) bootstrap = j; })
-      .catch(() => {});
-  } catch { /* noop */ }
+  let bootstrapAt = 0;
+  async function refreshBootstrap(force = false) {
+    const c = current();
+    const need = force || !(c.poolUrl || bootstrap.poolUrl) || !bootstrap.aiShimUrl;
+    if (!need) return;
+    if (!force && Date.now() - bootstrapAt < 30_000) return;
+    bootstrapAt = Date.now();
+    try {
+      const base = (c.familyUrl || "http://127.0.0.1").trim().replace(/\/+$/, "");
+      const r = await fetch(`${base}/api/dsh/config`, { cache: "no-store" });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j && j.ok) bootstrap = j;
+    } catch { /* noop */ }
+  }
   const cfg = () => {
     const c = current();
     return {
@@ -115,7 +131,10 @@ export function apply(ctx, config) {
 
   // ---------- 探测循环 ----------
   const probeSignal = new AbortController();
-  const initialProbe = caps.probe(probeSignal.signal).catch(() => {});
+  const initialProbe = (async () => {
+    await refreshBootstrap(true);
+    await caps.probe(probeSignal.signal);
+  })().catch(() => {});
 
   // ---------- LLM 提供方注册 ----------
   const attachments = ctx.get("attachments");
@@ -258,7 +277,10 @@ export function apply(ctx, config) {
     const timer =
       cfg().probeIntervalMs > 0
         ? setInterval(() => {
-            void caps.probe(probeSignal.signal).catch(() => {});
+            void (async () => {
+              await refreshBootstrap();  // 自举失败（DSH 先起/百花后起）时按退避重试
+              await caps.probe(probeSignal.signal);
+            })().catch(() => {});
           }, cfg().probeIntervalMs)
         : null;
     return () => {

@@ -14,6 +14,9 @@ jobs:
           node-version: 22
       - name: Syntax check
         run: |
-          for f in $(find . -maxdepth 1 -name '*.js' -o -maxdepth 1 -name '*.mjs' | sort); do
+          # 注意：原先只查根目录（find . -maxdepth 1），src/*.js 与 scripts/*.mjs 从未被检查过
+          for f in $(find src scripts -name '*.js' -o -name '*.mjs' | sort); do
             node --check "$f"
           done
+          [ -f client.js ] && node --check client.js || true
+          [ -f index.js ] && node --check index.js || true
