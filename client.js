@@ -41,8 +41,36 @@ window.__ModuleLoader__.load({
       { key: "smallTaskTemperature", label: "小任务采样温度", hint: "默认 0.4", type: "number", group: "advanced" },
     ];
 
+    /** 宿主托管的配置表单 → 旧版 settingsScope 形状（见 baihua-dsh-plugin 同名函数注释）。 */
+    function hostedScope(read) {
+      const fallback = { status: "unavailable", value: {}, writable: false, mode: "host" };
+      return {
+        getSnapshot: () => {
+          const form = read();
+          return form && form.state ? form.state : fallback;
+        },
+        subscribe: () => () => {},
+        set: (field, value) => {
+          const form = read();
+          return form ? form.mutate([{ op: "set", path: [field], value }]) : Promise.resolve(false);
+        },
+        unset: (field) => {
+          const form = read();
+          return form ? form.mutate([{ op: "unset", path: [field] }]) : Promise.resolve(false);
+        },
+      };
+    }
+
     function LocalAiConfigCard(props) {
-      const scope = props.scope;
+      // summary 只用于行描述兜底（bundle 配置页只渲染 page）
+      if (props.view === "summary") {
+        return React.createElement("span", null, "本机 AI（OVMS / shim / 算力池）探测与配置");
+      }
+      const formRef = React.useRef(props.form);
+      formRef.current = props.form;
+      const hasForm = props.form !== undefined && props.form !== null;
+      const hosted = React.useMemo(() => (hasForm ? hostedScope(() => formRef.current) : null), [hasForm]);
+      const scope = props.scope !== undefined ? props.scope : hosted;
       const [snap, setSnap] = useState(null);
       const [draft, setDraft] = useState({});
       const [saving, setSaving] = useState(false);
@@ -234,25 +262,23 @@ window.__ModuleLoader__.load({
       name: "dsh-baihua-local-ai-client",
       inject: ["slots"],
       apply(ctx) {
-        const settingsScope = ctx.get("settingsScope");
-        let scope = null;
-        if (settingsScope) {
-          try {
-            scope = settingsScope.bind({ namespace: NS });
-            ctx.onDispose(() => {
-              try { scope?.dispose?.(); } catch { /* noop */ }
-            });
-          } catch (e) {
-            console.log("[dsh-baihua-local-ai] settingsScope.bind 失败：", e.message);
-          }
-        }
-        ctx.slots.inject("settings.plugin.item", function* () {
+        // DSH 0.2.x：卡片挂在「插件」页里本 bundle 自己的页面上
+        // （plugins.bundle.config，key = 包名）；旧版 settings.plugin.item / settingsScope 已删除。
+        ctx.slots.inject("plugins.bundle.config", function* () {
           yield ctx.slots.register(
             {
-              name: "settings.plugin.item",
-              key: NS,
-              locale: "settings.baihua-local-ai",
-              inject: () => ({ scope }),
+              name: "plugins.bundle.config",
+              key: "baihua-local-ai-dsh-plugin",
+            },
+            LocalAiConfigCard
+          );
+        });
+        // 本行的「配置」页：宿主经 props.form 下发取值/写回句柄，卡片里的字段表单据此可编辑。
+        ctx.slots.inject("plugins.row.config", function* () {
+          yield ctx.slots.register(
+            {
+              name: "plugins.row.config",
+              key: "baihua-local-ai-dsh-plugin#dsh-baihua-local-ai",
             },
             LocalAiConfigCard
           );
